@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Station Data</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="myChart" width="400" height="200"></canvas>
+    <table>
+        <thead>
+            <tr>
+                <th>Location</th>
+                <th>Temperature</th>
+                <th>Humidity</th>
+                <th>Pressure</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody id="readings-body">
+            <!-- Data will be inserted here -->
+        </tbody>
+    </table>
+    <div>
+        <h3>Latest Reading</h3>
+        <p>Time: <span id="last-reading-time"></span></p>
+        <p>Temperature: <span id="latest-temperature"></span> °C</p>
+        <p>Humidity: <span id="latest-humidity"></span> %</p>
+        <p>Pressure: <span id="latest-pressure"></span> Pa</p>
+    </div>
+    <div>
+        <h3>Statistics</h3>
+        <p>Temperature - Min: <span id="temp-min"></span> °C, Max: <span id="temp-max"></span> °C, Avg: <span id="temp-avg"></span> °C</p>
+        <p>Humidity - Min: <span id="humidity-min"></span> %, Max: <span id="humidity-max"></span> %, Avg: <span id="humidity-avg"></span> %</p>
+        <p>Pressure - Min: <span id="pressure-min"></span> Pa, Max: <span id="pressure-max"></span> Pa, Avg: <span id="pressure-avg"></span> Pa</p>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            fetchReadings();
+            setInterval(fetchReadings, 60000); // Refresh data every 60000 milliseconds (1 minute)
+        });
+
+        let myChart;
+
+        function fetchReadings() {
+            axios
+                .get('http://localhost:5000/weatherstation/reading')
+                .then((response) => {
+                    const readings = response.data.data.slice(-20).reverse(); // Get the last 20 readings and reverse the order
+                    updateUI(readings);
+                    updateChart(readings);
+                })
+                .catch((error) => {
+                    console.error('Error fetching readings:', error);
+                    document.getElementById('readings-body').innerHTML =
+                        '<tr><td colspan="5">Error loading data!</td></tr>';
+                });
+
+            axios
+                .get('http://localhost:5000/weatherstation/reading/latest')
+                .then((response) => {
+                    const latestReading = response.data.data;
+                    updateLatestReading(latestReading);
+                })
+                .catch((error) => {
+                    console.error('Error fetching latest reading:', error);
+                    document.getElementById('last-reading-time').innerText = '--';
+                    document.getElementById('latest-temperature').innerText = '-- °C';
+                    document.getElementById('latest-humidity').innerText = '-- %';
+                    document.getElementById('latest-pressure').innerText = '-- Pa';
+                });
+        }
+
+        function updateUI(readings) {
+            const readingsBody = document.getElementById('readings-body');
+            readingsBody.innerHTML = readings
+                .map((reading) => {
+                    const formattedDate = new Date(reading.date).toLocaleString(); // Correct date formatting
+                    return `
+                        <tr>
+                            <td>${reading.location || 'FEATI Univ'}</td> <!-- Default location if not specified -->
+                            <td>${reading.tempInCelsius} °C</td>
+                            <td>${reading.humidity} %</td>
+                            <td>${reading.pressure} Pa</td>
+                            <td>${formattedDate}</td>
+                        </tr>
+                    `;
+                })
+                .join('');
+
+            if (readings.length > 0) {
+                updateStatistics(readings);
+            }
+        }
+
+        function updateLatestReading(latestReading) {
+            const lastReadingDate = new Date(latestReading.date).toLocaleString();
+            document.getElementById('last-reading-time').innerText = lastReadingDate;
+
+            document.getElementById('latest-temperature').innerText = `${latestReading.tempInCelsius}`;
+            document.getElementById('latest-humidity').innerText = `${latestReading.humidity}`;
+            document.getElementById('latest-pressure').innerText = `${latestReading.pressure}`;
+        }
+
+        function updateStatistics(readings) {
+            const temperatures = readings.map((reading) => reading.tempInCelsius);
+            const humidities = readings.map((reading) => reading.humidity);
+            const pressures = readings.map((reading) => reading.pressure);
+
+            const tempStats = calculateStats(temperatures);
+            const humidityStats = calculateStats(humidities);
+            const pressureStats = calculateStats(pressures);
+
+            document.getElementById('temp-min').innerText = tempStats.min;
+            document.getElementById('temp-max').innerText = tempStats.max;
+            document.getElementById('temp-avg').innerText = tempStats.avg;
+
+            document.getElementById('humidity-min').innerText = humidityStats.min;
+            document.getElementById('humidity-max').innerText = humidityStats.max;
+            document.getElementById('humidity-avg').innerText = humidityStats.avg;
+
+            document.getElementById('pressure-min').innerText = pressureStats.min;
+            document.getElementById('pressure-max').innerText = pressureStats.max;
+            document.getElementById('pressure-avg').innerText = pressureStats.avg;
+        }
+
+        function calculateStats(values) {
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            const avg = (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2);
+
+            return { min, max, avg };
+        }
+
+        function updateChart(readings) {
+            const labels = readings.map(reading => new Date(reading.date).toLocaleString());
+            const temperatures = readings.map(reading => reading.tempInCelsius);
+            const humidities = readings.map(reading => reading.humidity);
+            const pressures = readings.map(reading => reading.pressure);
+
+            const data = {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Temperature',
+                        data: temperatures,
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        borderWidth: 1,
+                        fill: false
+                    },
+                    {
+                        label: 'Humidity',
+                        data: humidities,
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        borderWidth: 1,
+                        fill: false
+                    },
+                    {
+                        label: 'Pressure',
+                        data: pressures,
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        borderWidth: 1,
+                        fill: false
+                    }
+                ]
+            };
+
+            const config = {
+                type: 'line',
+                data: data,
+                options: {
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'minute'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Value'
+                            }
+                        }
+                    }
+                }
+            };
+
+            if (myChart) {
+                myChart.destroy(); // Destroy previous chart instance if it exists
+            }
+
+            const ctx = document.getElementById('myChart').getContext('2d');
+            myChart = new Chart(ctx, config);
+        }
+    </script>
+</body>
+</html>
